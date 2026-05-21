@@ -3,8 +3,19 @@ layout: page
 description: "「梦醒时分 秋色堡垒 天际篡夺者 飘渺飞升」"
 ---
 
+{% assign all_categories = site.categories | sort %}
+
+{% if all_categories.size > 0 %}
+<div class="category-filter">
+  <button class="category-btn active" data-category="">全部<sup>{{ site.posts.size }}</sup></button>
+  {% for cat in all_categories %}
+  <button class="category-btn" data-category="{{ cat[0] }}">{{ cat[0] }}<sup>{{ cat[1].size }}</sup></button>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% for post in paginator.posts %}
-<div class="post-preview">
+<div class="post-preview" data-category="{% if post.categories %}{{ post.categories | join: ',' }}{% endif %}">
     <a href="{{ post.url | prepend: site.baseurl }}">
         <h2 class="post-title">
             {{ post.title }}
@@ -26,7 +37,7 @@ description: "「梦醒时分 秋色堡垒 天际篡夺者 飘渺飞升」"
         Posted by {% if post.author %}{{ post.author }}{% else %}{{ site.title }}{% endif %} on {{ post.date | date: "%B %-d, %Y" }}
     </p>
 </div>
-<hr>
+<hr class="post-divider">
 {% endfor %}
 
 <!-- Pager -->
@@ -44,3 +55,35 @@ description: "「梦醒时分 秋色堡垒 天际篡夺者 飘渺飞升」"
     {% endif %}
 </ul>
 {% endif %}
+
+<script>
+(function(){
+  var btns = document.querySelectorAll('.category-btn');
+  var posts = document.querySelectorAll('.post-preview');
+  var dividers = document.querySelectorAll('.post-divider');
+
+  function filter(cat) {
+    btns.forEach(function(b) {
+      b.classList.toggle('active', b.getAttribute('data-category') === cat);
+    });
+    posts.forEach(function(p) {
+      var cats = p.getAttribute('data-category') || '';
+      p.style.display = (!cat || cats.split(',').indexOf(cat) !== -1) ? '' : 'none';
+    });
+    dividers.forEach(function(d) {
+      var prev = d.previousElementSibling;
+      if (prev && prev.style.display === 'none') {
+        d.style.display = 'none';
+      } else {
+        d.style.display = '';
+      }
+    });
+  }
+
+  btns.forEach(function(b) {
+    b.addEventListener('click', function() {
+      filter(this.getAttribute('data-category'));
+    });
+  });
+})();
+</script>

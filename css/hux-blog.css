@@ -776,6 +776,34 @@ samp {
 .postlist-container {
   margin-bottom: 15px;
 }
+.category-filter {
+  margin: 20px 0;
+  text-align: center;
+}
+.category-btn {
+  display: inline-block;
+  border: 1px solid #0085a1;
+  border-radius: 999em;
+  padding: 4px 14px;
+  margin: 0 4px 8px;
+  color: #0085a1;
+  background: transparent;
+  font-size: 13px;
+  line-height: 24px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+.category-btn sup {
+  font-weight: 700;
+  margin-left: 2px;
+}
+.category-btn:hover {
+  background: rgba(0, 133, 161, 0.1);
+}
+.category-btn.active {
+  background: #0085a1;
+  color: white;
+}
 .post-container a {
   color: #337ab7;
 }
