@@ -278,10 +278,11 @@ static void check_size_align(uint32_t oprsz, uint32_t maxsz, uint32_t ofs)
 
 通过梳理这个函数的逻辑, 我们可以发现QEMU主线中, 对于调用到了这个函数的上下文, 这个上下文对于oprsz和maxsz的关系, 以及这两个值本身的限制的约定:
 
-|`maxsz` 的范围|对齐要求|
-|---|---|
-|小于 16 字节|必须是 8 的倍数|
-|至少 16 字节|必须是 16 的倍数|
+| `maxsz` 的范围 | 对齐要求 |
+| --- | --- |
+| 小于 16 字节 | 必须是 8 的倍数 |
+| 至少 16 字节 | 必须是 16 的倍数 |
+
 ```
 oprsz ∈ {8, 16, 32}：
     要求 oprsz ≤ maxsz
@@ -330,6 +331,7 @@ RISC-V 层分流
 | 经 `tcg_gen_gvec_N_ptr()` 包装                   | **182** | 178 个使用 `vlenb/vlenb`；4 个整寄存器移动使用 `vlenb×N` |
 | translator 自己构造 descriptor，再调用 `gen_helper_*` | **220** | 全部使用 `vlenb/vlenb`                          |
 | 不构造 descriptor                                |   **5** | 三条 `vset*` 和两条向量到标量读取                       |
+
 因此, 可以预想, 这个错误也会影响到RVV中的大多数指令.
 
 而对于**通用GVEC路径的check_size_align**则比较简单. 前面我们提到过, 对于绝大多数提供了GVEC通用路径的指令, 他们进入GVEC通用路径时, 都会判断`vl_eq_vlmax`是否为true, 而这个判断为true, 必须满足`maxsz >= 8`, 从而也就不会触发断言.
