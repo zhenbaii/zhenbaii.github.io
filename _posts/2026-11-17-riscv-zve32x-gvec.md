@@ -346,3 +346,65 @@ RISC-V 层分流
 RVV 专用 helper 的尺寸也并非全部等于物理寄存器长度：整寄存器移动使用 `vlenb×N`。因此判断是否触发问题，应看**实际传给检查函数的 `oprsz/maxsz`**。
 
 不构造 descriptor 的路径，不会在 descriptor 构造处触发该断言；通用 `.fno` 路径则已经通过前面的尺寸检查，不是此次 4 字节 descriptor 故障的入口。
+
+# 修复方案讨论：当前补丁覆盖 descriptor 路径
+
+本轮讨论的本地实验补丁为 `7609a8e46d8b`，基于 `4437f0c7ef33`。它解决的是 **GVEC descriptor 无法表达 `oprsz=maxsz=4`** 的问题，而不是一次性完成所有 VLEN=32 执行路径的适配。
+
+## 编码与解码的修改
+
+原始 `MAXSZ` 字段按 `(maxsz / 8) - 1` 编码，按 `(field + 1) * 8` 解码，因此不能表达 4 字节。补丁复用字段值 `2` 表示 4 字节：它原来对应 24 字节，而 24 不满足原有 `maxsz` 必须按 16 字节对齐的要求，并不是一个原本支持的合法最大尺寸。
+
+`OPRSZ` 已经有字段值 `2` 表示“等于 MAXSZ”的约定，因此无需新增位数。新增情况的编码与解码过程为：
+
+```text
+simd_desc(4, 4, data)
+    MAXSZ 字段 = 2，新增语义为 4 字节
+    OPRSZ 字段 = 2，沿用“等于 MAXSZ”的语义
+    ↓
+simd_maxsz(desc) = 4
+simd_oprsz(desc) = simd_maxsz(desc) = 4
+```
+
+实现上，`simd_desc()` 对 `maxsz=4` 单独处理，并用调试断言要求 `oprsz=4`；其他尺寸沿用原有检查和编码。`simd_maxsz()` 增加字段值 `2` 的解码特例，`simd_oprsz()` 现有逻辑即可取得 4。原有合法尺寸的编码、字段位置和 22 位 DATA 保持兼容。
+
+这一轮只增加 `4/4`，没有增加 `4/8` 等混合尺寸，也没有把原来的尺寸约束普遍放宽为“四字节对齐”。
+
+## 覆盖范围由 descriptor 协议决定
+
+**是否经过 `tcg_gen_gvec_N_ptr()` 并不是补丁覆盖与否的判断条件。**下面两种 RVV 专用 helper 调用都会受益：
+
+```text
+公共包装方式：
+    translator → tcg_gen_gvec_N_ptr → simd_desc(4,4,data)
+
+直接构造方式：
+    translator / 公共翻译函数 → simd_desc(4,4,data)
+                             → gen_helper_*(...,desc)
+```
+
+例如 `vredsum.vs` 通过 `opivv_trans()` 和公共包装生成调用；`vadd.vx/vi` 的专用分支分别在 `opivx_trans()/opivi_trans()` 内直接构造 descriptor。补丁修改公共编码和解码，所以覆盖这两种组织方式，不需要逐条修改这些调用点。
+
+通用 GVEC 的 `.fno` 分支同样使用 descriptor 协议，但普通路径在选择 `.fno` 之前已经通过尺寸检查，使用的是至少 8 字节的合法尺寸。本补丁对这些既有输入保持兼容，不能把 `.fno` 也统计成新增 4 字节支持所解除的故障入口。
+
+| 路径 | 当前补丁的作用 |
+| --- | --- |
+| RVV 专用 helper 调用，实际构造 `simd_desc(4,4,data)` | 补上构造和解码能力，解除这处尺寸阻塞 |
+| 通用 GVEC 的 `.fno`，使用原有合法尺寸 | 保持既有 descriptor 编码与语义 |
+| `vmv1r.v` 在 `vstart=0` 时直接进入通用 GVEC 展开器 | 仍在展开器的 `check_size_align()` 处失败，需要另外适配 |
+| 整寄存器访存的手写 TCG 直接展开路径 | 不构造 descriptor，不在本补丁的修复范围内 |
+| `vset*`、向量到标量读取等不使用该 descriptor 的路径 | 不涉及这项协议修改 |
+
+所以，当前补丁的边界应表述为：**为使用 GVEC descriptor 的 helper 调用路径增加 `4/4` 尺寸支持，保留通用 GVEC 展开器原有的尺寸限制。**“descriptor 已经能表达 4 字节”不能推导出“所有 VLEN=32 指令已经正确”。
+
+helper 侧也需要按实际访问方式验证。此前小端实验说明多条指令的现有逐元素实现可以在 descriptor 障碍解除后正常工作，但已发现 `vmvr_v` 大端分支存在八字节边界处理的静态反例，仍需单独修复和验证。因此也不能把“本轮补丁没有修改 helper”解释成“所有 helper 都无条件兼容 4 字节”。
+
+## 邮件列表和主线状态核查（2026-11-17）
+
+本次检索 qemu-devel 公开归档后，尚未找到直接为 `simd_desc(4,4,data)` 增加支持的同类修复。另行读取 QEMU 官方 GitHub 镜像 master，固定到 `97c88c61d45dee6e1f9bc160a338048189846d28`：其 `simd_desc()` 仍调用原有尺寸检查，`simd_maxsz()` 仍按 `field*8+8` 解码，尚未包含 4 字节特例。可核对[该提交的 descriptor 定义](https://github.com/qemu/qemu/blob/97c88c61d45dee6e1f9bc160a338048189846d28/include/tcg/tcg-gvec-desc.h)和[构造函数](https://github.com/qemu/qemu/blob/97c88c61d45dee6e1f9bc160a338048189846d28/tcg/tcg-op-gvec.c)。检索未发现不等于排除尚未归档或索引的邮件。
+
+相关但不能混为本问题完整修复的邮件包括：
+
+- 2026 年 8 月的 [use element-sized path for whole-register ld/st](https://www.mail-archive.com/qemu-devel@nongnu.org/msg1214482.html)：明确提到 VLEN=32 时固定 8 字节访问可能越过相邻寄存器，提议始终走按元素处理的访存 helper。它针对整寄存器访存的直接展开和 vstart 精确恢复，没有修改 descriptor 的 4 字节编码。
+- 同组的 [allow whole-register moves with vill set](https://www.mail-archive.com/qemu-devel@nongnu.org/msg1214478.html)：处理整寄存器移动的 vill 门控，并没有处理这里的 4 字节尺寸限制。
+- [raise VLEN limit to the specification's maximum](https://www.mail-archive.com/qemu-devel@nongnu.org/msg1201196.html)：讨论扩大 VLEN 与 descriptor 的尺寸上界，和本轮补上 4 字节表示能力属于不同的边界。
