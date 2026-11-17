@@ -398,13 +398,3 @@ simd_oprsz(desc) = simd_maxsz(desc) = 4
 所以，当前补丁的边界应表述为：**为使用 GVEC descriptor 的 helper 调用路径增加 `4/4` 尺寸支持，保留通用 GVEC 展开器原有的尺寸限制。**“descriptor 已经能表达 4 字节”不能推导出“所有 VLEN=32 指令已经正确”。
 
 helper 侧也需要按实际访问方式验证。此前小端实验说明多条指令的现有逐元素实现可以在 descriptor 障碍解除后正常工作，但已发现 `vmvr_v` 大端分支存在八字节边界处理的静态反例，仍需单独修复和验证。因此也不能把“本轮补丁没有修改 helper”解释成“所有 helper 都无条件兼容 4 字节”。
-
-## 邮件列表和主线状态核查（2026-11-17）
-
-本次检索 qemu-devel 公开归档后，尚未找到直接为 `simd_desc(4,4,data)` 增加支持的同类修复。另行读取 QEMU 官方 GitHub 镜像 master，固定到 `97c88c61d45dee6e1f9bc160a338048189846d28`：其 `simd_desc()` 仍调用原有尺寸检查，`simd_maxsz()` 仍按 `field*8+8` 解码，尚未包含 4 字节特例。可核对[该提交的 descriptor 定义](https://github.com/qemu/qemu/blob/97c88c61d45dee6e1f9bc160a338048189846d28/include/tcg/tcg-gvec-desc.h)和[构造函数](https://github.com/qemu/qemu/blob/97c88c61d45dee6e1f9bc160a338048189846d28/tcg/tcg-op-gvec.c)。检索未发现不等于排除尚未归档或索引的邮件。
-
-相关但不能混为本问题完整修复的邮件包括：
-
-- 2026 年 8 月的 [use element-sized path for whole-register ld/st](https://www.mail-archive.com/qemu-devel@nongnu.org/msg1214482.html)：明确提到 VLEN=32 时固定 8 字节访问可能越过相邻寄存器，提议始终走按元素处理的访存 helper。它针对整寄存器访存的直接展开和 vstart 精确恢复，没有修改 descriptor 的 4 字节编码。
-- 同组的 [allow whole-register moves with vill set](https://www.mail-archive.com/qemu-devel@nongnu.org/msg1214478.html)：处理整寄存器移动的 vill 门控，并没有处理这里的 4 字节尺寸限制。
-- [raise VLEN limit to the specification's maximum](https://www.mail-archive.com/qemu-devel@nongnu.org/msg1201196.html)：讨论扩大 VLEN 与 descriptor 的尺寸上界，和本轮补上 4 字节表示能力属于不同的边界。
