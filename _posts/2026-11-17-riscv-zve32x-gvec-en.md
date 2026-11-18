@@ -378,31 +378,8 @@ simd_oprsz(desc) = simd_maxsz(desc) = 4
 
 The new encoding is limited to `4/4`. Mixed sizes such as `4/8` are outside its scope, and the existing alignment rules apply elsewhere.
 
-## Coverage Follows the Descriptor Format
+## Cases Outside the Patch’s Scope
 
-Both ways of emitting an instruction-specific RVV helper call use the same descriptor format.
-
-```text
-With a shared wrapper
-    translator → tcg_gen_gvec_N_ptr → simd_desc(4,4,data)
-
-With direct descriptor construction
-    translator / shared translation function → simd_desc(4,4,data)
-                                             → gen_helper_*(...,desc)
-```
-
-For example, `vredsum.vs` emits its call through `opivv_trans()` and the shared wrapper. The instruction-specific paths for `vadd.vx` and `vadd.vi` build descriptors directly in `opivx_trans()` and `opivi_trans()`, respectively. Updating the shared encoder and decoder covers both forms at their existing call sites.
-
-The generic GVEC `.fno` branch also uses the descriptor format. It receives valid sizes of at least eight bytes because the generic path checks them before selecting `.fno`. The patch preserves compatibility for those inputs. The new encoding addresses the four-byte inputs on the instruction-specific helper path.
-
-| Path | Effect of the patch |
-| --- | --- |
-| Instruction-specific RVV helper call that builds `simd_desc(4,4,data)` | The encoder and decoder can now handle the four-byte sizes. |
-| Generic GVEC `.fno` with an existing valid size | The descriptor keeps its original encoding and meaning. |
-| `vmv1r.v` enters the generic GVEC expander directly when `vstart=0` | `check_size_align()` still fails in the expander. This path needs a separate fix. |
-| Hand-written TCG expansion for whole-register loads and stores | This path emits the memory operations directly, outside the descriptor path. |
-| `vset*` and vector-to-scalar reads | These paths operate without a GVEC descriptor. |
-
-**The patch adds `4/4` support for helper calls that use GVEC descriptors. The generic GVEC expander still enforces its original size constraints.** Full VLEN=32 support also depends on how each path accesses vector data.
-
-The helpers themselves need to be checked against their actual access patterns. Earlier little-endian tests showed that several instructions could use their existing element-by-element implementations once they had a valid four-byte descriptor. Source inspection revealed a counterexample in the big-endian branch of `vmvr_v`, where the code assumes eight-byte boundaries. That case requires its own fix and validation.
+- At VLEN=32 with `vstart=0`, `vmv1r.v` still hits the `check_size_align()` assertion in the generic GVEC expander.
+- Directly expanded whole-register loads and stores still access eight bytes at a time, exceeding the size of a single four-byte register.
+- The big-endian branch of `vmvr_v` copies data on eight-byte boundaries. Its four-byte case still needs a fix and validation.

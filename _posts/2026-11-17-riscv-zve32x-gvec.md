@@ -375,31 +375,8 @@ simd_oprsz(desc) = simd_maxsz(desc) = 4
 
 这一轮只增加 `4/4`，没有增加 `4/8` 等混合尺寸，也没有把原来的尺寸约束普遍放宽为“四字节对齐”。
 
-## 覆盖范围由 descriptor 协议决定
+## 未覆盖的若干种情况
 
-**是否经过 `tcg_gen_gvec_N_ptr()` 并不是补丁覆盖与否的判断条件。**下面两种 RVV 专用 helper 调用都会受益：
-
-```text
-公共包装方式：
-    translator → tcg_gen_gvec_N_ptr → simd_desc(4,4,data)
-
-直接构造方式：
-    translator / 公共翻译函数 → simd_desc(4,4,data)
-                             → gen_helper_*(...,desc)
-```
-
-例如 `vredsum.vs` 通过 `opivv_trans()` 和公共包装生成调用；`vadd.vx/vi` 的专用分支分别在 `opivx_trans()/opivi_trans()` 内直接构造 descriptor。补丁修改公共编码和解码，所以覆盖这两种组织方式，不需要逐条修改这些调用点。
-
-通用 GVEC 的 `.fno` 分支同样使用 descriptor 协议，但普通路径在选择 `.fno` 之前已经通过尺寸检查，使用的是至少 8 字节的合法尺寸。本补丁对这些既有输入保持兼容，不能把 `.fno` 也统计成新增 4 字节支持所解除的故障入口。
-
-| 路径 | 当前补丁的作用 |
-| --- | --- |
-| RVV 专用 helper 调用，实际构造 `simd_desc(4,4,data)` | 补上构造和解码能力，解除这处尺寸阻塞 |
-| 通用 GVEC 的 `.fno`，使用原有合法尺寸 | 保持既有 descriptor 编码与语义 |
-| `vmv1r.v` 在 `vstart=0` 时直接进入通用 GVEC 展开器 | 仍在展开器的 `check_size_align()` 处失败，需要另外适配 |
-| 整寄存器访存的手写 TCG 直接展开路径 | 不构造 descriptor，不在本补丁的修复范围内 |
-| `vset*`、向量到标量读取等不使用该 descriptor 的路径 | 不涉及这项协议修改 |
-
-所以，当前补丁的边界应表述为：**为使用 GVEC descriptor 的 helper 调用路径增加 `4/4` 尺寸支持，保留通用 GVEC 展开器原有的尺寸限制。**“descriptor 已经能表达 4 字节”不能推导出“所有 VLEN=32 指令已经正确”。
-
-helper 侧也需要按实际访问方式验证。此前小端实验说明多条指令的现有逐元素实现可以在 descriptor 障碍解除后正常工作，但已发现 `vmvr_v` 大端分支存在八字节边界处理的静态反例，仍需单独修复和验证。因此也不能把“本轮补丁没有修改 helper”解释成“所有 helper 都无条件兼容 4 字节”。
+- `vmv1r.v` 在 `VLEN=32`、`vstart=0` 时仍会触发通用 GVEC 展开器中的 `check_size_align()` 断言。
+- 整寄存器加载和存储的直接展开路径仍按 8 字节访问，超出了单个 4 字节寄存器的范围。
+- `vmvr_v` 的大端分支按 8 字节边界拷贝，4 字节寄存器的处理仍需修复和验证。
