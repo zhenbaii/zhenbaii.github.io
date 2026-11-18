@@ -34,6 +34,8 @@ Zve32x sets a minimum `VLEN` of 32 bits. The full `V` extension requires at leas
 
 ## Reproduction and Call Chain
 
+To reproduce the `check_size_align` assertion below, configure QEMU with `--enable-debug-tcg` before building it. This is a build-time option, not an option to pass to `qemu-system-riscv64` at runtime.
+
 Enable `Zve32x` with the following settings.
 
 ```

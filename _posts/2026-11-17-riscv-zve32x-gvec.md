@@ -34,6 +34,8 @@ Zve32x是RVV的一个标准扩展子集, 用于那些资源受限的32位嵌入�
 
 ## issue链路
 
+要复现下文的 `check_size_align` 断言，构建 QEMU 时需要给 `configure` 添加 `--enable-debug-tcg`。这是构建选项，不是 QEMU 的启动参数。
+
 启用`Zve32x`, 并且设定:
 ```
 VLEN = 32 BIT
