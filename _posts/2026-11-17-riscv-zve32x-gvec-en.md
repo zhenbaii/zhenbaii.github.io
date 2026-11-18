@@ -355,9 +355,7 @@ Whole-register move helpers use `vlenb × N`, so the size at each call site matt
 
 The descriptor assertion applies only to paths that construct a descriptor. The generic GVEC path validates the sizes before it reaches `.fno`.
 
-# Proposed Fix for the Descriptor Path
-
-The local experimental patch discussed here is `7609a8e46d8b`, based on `4437f0c7ef33`. It addresses one part of VLEN=32 support by giving GVEC descriptors a way to represent `oprsz=maxsz=4`.
+# Patch Implementation and Rationale
 
 ## Encoding and Decoding Changes
 
